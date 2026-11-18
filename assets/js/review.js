@@ -1,0 +1,1097 @@
+/* =========================================================
+   SMARTREVIEW — CUSTOMER REVIEW FLOW
+   review.js  |  v4.0  |  No dependencies except qrcode/confetti
+   ========================================================= */
+'use strict';
+
+const R = (() => {
+
+  /* ── CONSTANTS ────────────────────────────────────────── */
+  const STORE_KEY   = 'sr_businesses_v4';
+  const ACTIVE_KEY  = 'sr_active_v4';
+  const STAT_PREFIX = 'sr_stat_';
+
+  const STAR_LABELS = ['','Terrible 😞','Poor 😕','Okay 😐','Good 😊','Excellent 🤩'];
+  const STAR_COLORS = ['','#EA4335','#FA7B17','#F9AB00','#34A853','#1A73E8'];
+
+  const KEYWORDS = {
+    restaurant:['Mouthwatering Food 🍲','Attentive Staff 😊','Beautiful Interior ✨','Fast Service ⚡','Authentic Flavours 🌶️','Generous Portions 🥘','Great Drinks 🍹','Family Friendly 👨‍👩‍👧','Spotless Hygiene 🧼','Outstanding Experience ⭐'],
+    cafe:      ['Amazing Coffee ☕','Delicious Pastries 🥐','Cozy Ambiance 🛋️','Friendly Baristas ⚡','Fresh Ingredients 🌱','Great Work Spot 💻','Speedy Service ✨','Good Value 💰','Must-Visit 📍','Always Come Back 🔄'],
+    salon:     ['Skilled Stylist ✂️','Relaxing Experience 💆','Spotless & Hygienic ✨','Premium Products 🧴','Polite Staff 😊','No Wait Time ⏱️','Great Hair Result 💎','Thorough Consultation 💬','Worth Every Rupee 💰','My Go-To Place 🏆'],
+    clinic:    ['Caring Doctor 👨‍⚕️','Pain-Free Treatment 🩹','Sparkling Clean 🏥','Clear Explanations 💬','Warm Receptionist 😊','Modern Equipment 🔬','On-Time 🕐','Extremely Professional 🏆','Felt Completely at Ease 😌','Highly Recommended 👍'],
+    gym:       ['Top Equipment 🏋️','Motivating Trainers 🥇','High-Energy Vibe ⚡','Clean Locker Rooms 🚿','Great Community 👥','Personalised Plans 🎯','Spacious & Ventilated 💨','Visible Results 💪','Fair Pricing 💰','Best Gym Around ⭐'],
+    retail:    ['Trendy Collection 👗','Helpful Staff 😊','Great Deals 🏷️','Top Quality 💎','Smooth Checkout ⚡','Beautiful Layout 🏬','Found Exactly What I Needed 🎯','Easy Returns 🔄','Enjoyable Shopping 🛍️','Will Shop Again ⭐'],
+    hotel:     ['Immaculate Rooms 🛏️','Outstanding Hospitality 🛎️','Excellent Breakfast 🍳','Breathtaking Views 🌄','Perfect Location 📍','Fast Room Service ⚡','Super Comfy Beds ☁️','Peaceful & Quiet 🌿','5-Star Experience 🌟','Booking Again 🔑'],
+    auto:      ['Expert Mechanics 🔧','Honest Pricing 💰','Quick Turnaround ⏱️','Smooth Drive After 🏎️','Transparent Report 📋','Car Washed & Clean 🧼','Genuine Parts ⚙️','Friendly Team 😊','Trustworthy Garage 🛡️','100% Reliable 👍'],
+    general:   ['Outstanding Service 🏆','Warm & Friendly 😊','Prompt & Efficient ⚡','High-Quality Work 💎','Reasonable Prices 💰','Exceeded Expectations 🎯','Attention to Detail 🔍','Smooth Experience ✨','Very Professional 👔','Wholeheartedly Recommend 👍'],
+  };
+
+  /* ── STATE ────────────────────────────────────────────── */
+  let business   = null;   // active business config
+  let rating     = 0;
+  let keywords   = [];
+  let review     = '';
+  let stepStack  = [];
+
+  /* ── INIT ─────────────────────────────────────────────── */
+  function init() {
+    const params = new URLSearchParams(location.search);
+    
+    // Get business ID from URL parameter
+    const bizId = params.get('businessId') || params.get('b') || params.get('biz');
+    
+    if (!bizId) {
+      showSetupNeeded();
+      return;
+    }
+
+    // Load business from API
+    loadBusinessFromAPI(bizId);
+  }
+
+  async function loadBusinessFromAPI(bizId) {
+    try {
+      // Show loading state
+      showLoadingState();
+      
+      // Fetch business from API
+      const response = await API.businesses.getById(bizId);
+      
+      if (!response.success || !response.data) {
+        showSetupNeeded();
+        return;
+      }
+      
+      business = response.data;
+      
+      // Increment scan counter
+      incrementStatAPI(bizId, 'scans');
+      
+      // Setup UI
+      applyBizToUI();
+      showView('view-rate');
+      bindRating();
+      bindForm();
+      bindButtons();
+      
+    } catch (error) {
+      console.error('Failed to load business:', error);
+      
+      // Try fallback to localStorage/URL data (backward compatibility)
+      const params = new URLSearchParams(location.search);
+      let biz = loadBusinessFromUrl(params);
+      
+      if (!biz) {
+        biz = loadBusiness(bizId);
+      }
+      
+      if (biz) {
+        business = biz;
+        applyBizToUI();
+        incStat('scans');
+        showView('view-rate');
+        bindRating();
+        bindForm();
+        bindButtons();
+      } else {
+        showSetupNeeded();
+      }
+    }
+  }
+
+  function showLoadingState() {
+    const loadingHTML = `
+      <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;">
+        <div style="text-align:center;">
+          <div style="width:48px;height:48px;border:4px solid #e0e0e0;border-top-color:#4285F4;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 20px;"></div>
+          <p style="color:#5F6368;font-size:0.9rem;">Loading business information...</p>
+        </div>
+      </div>
+      <style>
+        @keyframes spin { to { transform: rotate(360deg); } }
+      </style>
+    `;
+    document.body.innerHTML = loadingHTML;
+  }
+
+  async function incrementStatAPI(bizId, stat) {
+    try {
+      await API.stats.increment(bizId, stat);
+    } catch (error) {
+      console.warn('Failed to increment stat via API, using localStorage fallback:', error);
+      // Fallback to localStorage
+      incStat(stat);
+    }
+  }
+
+  function loadBusinessFromUrl(params) {
+    // Load business data from URL parameter (for mobile devices)
+    try {
+      const encoded = params.get('d');
+      if (!encoded) return null;
+      
+      const decoded = decodeURIComponent(atob(encoded));
+      const data = JSON.parse(decoded);
+      
+      // Convert short keys back to full business object
+      return {
+        id: data.id,
+        name: data.n,
+        type: data.t || 'general',
+        googleUrl: data.g,
+        phone: data.p || '',
+        email: data.e || '',
+        avatar: getAvatar(data.t || 'general'),
+        apiKey: '' // Not included in URL for security
+      };
+    } catch (e) {
+      console.warn('Failed to load business from URL:', e);
+      return null;
+    }
+  }
+
+  function showSetupNeeded() {
+    // Show professional "Invalid QR Code" message for mobile users
+    const setupView = document.getElementById('view-setup');
+    if (setupView) {
+      setupView.style.display = 'flex';
+      setupView.innerHTML = `
+        <div style="text-align:center; padding:60px 20px; max-width:400px; margin:0 auto;">
+          <div style="font-size:4rem; margin-bottom:20px;">🔍</div>
+          <h2 style="font-size:1.4rem; font-weight:700; margin-bottom:12px; color:#202124;">Invalid QR Code</h2>
+          <p style="color:#5F6368; line-height:1.6; margin-bottom:24px;">
+            This review link is not properly configured. Please scan the QR code provided by the business.
+          </p>
+          <p style="font-size:0.85rem; color:#9AA0A6; margin-bottom:20px;">
+            Business owners: Configure your business in the admin panel first.
+          </p>
+          <a href="admin.html" style="display:inline-block; padding:12px 24px; background:#4285F4; color:white; text-decoration:none; border-radius:8px; font-weight:600;">
+            Open Admin Panel
+          </a>
+        </div>
+      `;
+    }
+  }
+
+  function loadBusiness(id) {
+    try {
+      const list = JSON.parse(localStorage.getItem(STORE_KEY) || '[]');
+      if (!list.length) return null;
+      if (id) return list.find(b => b.id === id) || list[0];
+      const activeId = localStorage.getItem(ACTIVE_KEY);
+      return list.find(b => b.id === activeId) || list[0];
+    } catch { return null; }
+  }
+
+  function applyBizToUI() {
+    const b = business;
+    const catKws = KEYWORDS[b.type] || KEYWORDS.general;
+    const avatar = catKws[0].split(' ').pop(); // last emoji from first keyword
+
+    document.getElementById('r-avatar').textContent    = b.avatar || getAvatar(b.type);
+    document.getElementById('r-biz-name').textContent  = b.name;
+    document.getElementById('r-category').textContent  = getCatLabel(b.type);
+    document.getElementById('post-biz-name').textContent = b.name;
+    document.getElementById('page-title').textContent  = `Review ${b.name}`;
+  }
+
+  /* ── NAVIGATION ───────────────────────────────────────── */
+  function showView(id) {
+    document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+    const el = document.getElementById(id);
+    if (el) el.classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function goTo(id) {
+    stepStack.push(getCurrentView());
+    showView(id);
+  }
+
+  function goBack() {
+    const prev = stepStack.pop();
+    if (prev) showView(prev);
+  }
+
+  function getCurrentView() {
+    const active = document.querySelector('.step.active');
+    return active ? active.id : 'view-rate';
+  }
+
+  /* ── STAR RATING ──────────────────────────────────────── */
+  function bindRating() {
+    const btns = document.querySelectorAll('.star-btn');
+    const label = document.getElementById('rating-label');
+
+    const paint = (n) => {
+      btns.forEach(b => {
+        b.classList.toggle('lit', parseInt(b.dataset.v) <= n);
+      });
+    };
+
+    btns.forEach(btn => {
+      const v = parseInt(btn.dataset.v);
+      btn.addEventListener('mouseenter', () => paint(v));
+      btn.addEventListener('mouseleave', () => paint(rating));
+      btn.addEventListener('touchstart', () => paint(v), { passive: true });
+      btn.addEventListener('click', () => {
+        rating = v;
+        paint(v);
+        label.textContent = STAR_LABELS[v];
+        label.style.color = STAR_COLORS[v];
+
+        if (v === 5 && typeof confetti === 'function') {
+          confetti({ particleCount: 70, spread: 65, origin: { y: 0.7 } });
+        }
+
+        setTimeout(() => {
+          // COMPLIANCE FIX: All customers can access Google reviews
+          // No review gating based on star rating
+          
+          if (rating >= 4) {
+            // 4-5 stars: AI-powered review builder → Google
+            loadChips();
+            document.getElementById('step2-rating-badge').textContent = '⭐'.repeat(rating);
+            goTo('view-build');
+          } else if (rating === 3) {
+            // 3 stars: Offer BOTH options - Google review OR private feedback
+            setupMixedFeedback();
+            goTo('view-feedback');
+          } else {
+            // 1-2 stars: Offer BOTH options - Google review OR private feedback
+            // Customer chooses which path to take
+            setupMixedFeedback();
+            goTo('view-feedback');
+          }
+        }, 420);
+      });
+    });
+  }
+
+  /* ── FEEDBACK MODES ───────────────────────────────────── */
+  
+  function setupMixedFeedback() {
+    // GOOGLE POLICY COMPLIANT: Offer BOTH options for 1-3 star ratings
+    // Customer can choose: Post to Google OR Send private feedback
+    // This prevents review gating
+    
+    const formRow = document.querySelector('#view-feedback .form-row');
+    const waBtn = document.getElementById('btn-wa');
+    const emailBtn = document.querySelector('#fb-form button[type="submit"]');
+    const msgTextarea = document.getElementById('fb-msg');
+    const shieldTitle = document.querySelector('.shield-title');
+    const shieldSub = document.querySelector('.shield-sub');
+    
+    if (formRow) formRow.style.display = 'flex'; // Show name/contact for follow-up
+    
+    // Update messaging
+    if (shieldTitle) {
+      shieldTitle.textContent = 'We value your feedback';
+    }
+    if (shieldSub) {
+      shieldSub.innerHTML = 'Choose how to share: <strong>Post on Google</strong> or send <strong>private feedback</strong> to management';
+    }
+    
+    if (msgTextarea) {
+      msgTextarea.placeholder = 'Please tell us what happened so we can improve...';
+      msgTextarea.required = false; // Optional for Google path
+    }
+    
+    // Show both WhatsApp AND Google buttons
+    const hasWhatsApp = business.phone && business.phone.trim();
+    
+    if (waBtn) {
+      if (hasWhatsApp) {
+        waBtn.style.display = 'flex';
+        waBtn.style.visibility = 'visible';
+        waBtn.style.height = 'auto';
+        waBtn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M17.472 14.382c-.301-.15-1.78-.877-2.056-.977-.275-.1-.476-.15-.677.15-.2.301-.777.977-.953 1.178-.175.2-.351.226-.652.075s-1.272-.468-2.424-1.494c-.896-.799-1.502-1.786-1.678-2.087-.175-.301-.019-.464.132-.614.135-.135.301-.351.451-.527.151-.176.201-.301.301-.502.1-.2.05-.376-.025-.526-.075-.15-.677-1.632-.927-2.234-.244-.587-.492-.507-.677-.516l-.577-.01c-.2 0-.526.075-.802.376-.276.301-1.053 1.028-1.053 2.507 0 1.479 1.078 2.908 1.228 3.109.15.2 2.122 3.24 5.141 4.544.718.31 1.278.496 1.716.635.722.23 1.38.197 1.9.12.58-.086 1.78-.727 2.03-1.43.25-.702.25-1.304.175-1.43-.075-.125-.276-.2-.577-.35zM12.04 2C6.51 2 2.02 6.49 2.02 12.02c0 1.99.58 3.84 1.59 5.4L2 22.5l5.24-1.57c1.5 1 3.29 1.58 5.2 1.58 5.53 0 10.02-4.49 10.02-10.02C22.46 6.49 17.57 2 12.04 2z"/></svg> Send Private Feedback';
+        waBtn.style.background = '#25D366';
+      } else {
+        waBtn.style.display = 'none';
+      }
+    }
+    
+    // Add Google review button as alternative option
+    if (emailBtn) {
+      emailBtn.type = 'button'; // Change from submit
+      emailBtn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg> Post on Google';
+      emailBtn.style.background = '#4285F4';
+      emailBtn.style.color = 'white';
+      emailBtn.style.display = 'flex';
+      emailBtn.classList.add('btn-primary');
+      emailBtn.classList.remove('btn-outline');
+      emailBtn.setAttribute('data-action', 'google-direct');
+      
+      // Bind Google review action
+      emailBtn.onclick = () => {
+        // Open Google reviews directly
+        if (business && business.googleUrl) {
+          window.open(business.googleUrl, '_blank');
+          showDone(true);
+        } else {
+          alert('Google review link not configured. Please contact the business.');
+        }
+      };
+    }
+    
+    incStat('shielded'); // Track that customer used feedback path
+  }
+  
+  function setupQuickFeedback() {
+    // 3 stars: Direct WhatsApp send with reason only
+    const formRow = document.querySelector('#view-feedback .form-row');
+    const waBtn = document.getElementById('btn-wa');
+    const emailBtn = document.querySelector('#fb-form button[type="submit"]');
+    const msgTextarea = document.getElementById('fb-msg');
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
+    if (formRow) formRow.style.display = 'none'; // Hide name/contact fields
+    
+    // Check if WhatsApp OR email is configured
+    const hasWhatsApp = business.phone && business.phone.trim();
+    const hasEmail = business.email && business.email.trim();
+    
+    if (hasWhatsApp) {
+      // WhatsApp is configured
+      if (isMobile) {
+        // MOBILE: Hide WhatsApp button completely, use submit button for WhatsApp
+        if (waBtn) {
+          waBtn.style.setProperty('display', 'none', 'important');
+          waBtn.style.visibility = 'hidden';
+          waBtn.style.height = '0';
+          waBtn.style.overflow = 'hidden';
+        }
+        if (emailBtn) {
+          emailBtn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Send Feedback';
+          emailBtn.style.background = '#25D366';
+          emailBtn.style.color = 'white';
+          emailBtn.style.display = 'flex';
+          emailBtn.classList.add('btn-primary');
+          emailBtn.classList.remove('btn-outline');
+          emailBtn.setAttribute('data-action', 'whatsapp-direct');
+        }
+      } else {
+        // DESKTOP: Show WhatsApp button, hide submit
+        if (waBtn) {
+          waBtn.style.removeProperty('display');
+          waBtn.style.display = 'flex';
+          waBtn.style.visibility = 'visible';
+          waBtn.style.height = 'auto';
+          waBtn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M17.472 14.382c-.301-.15-1.78-.877-2.056-.977-.275-.1-.476-.15-.677.15-.2.301-.777.977-.953 1.178-.175.2-.351.226-.652.075s-1.272-.468-2.424-1.494c-.896-.799-1.502-1.786-1.678-2.087-.175-.301-.019-.464.132-.614.135-.135.301-.351.451-.527.151-.176.201-.301.301-.502.1-.2.05-.376-.025-.526-.075-.15-.677-1.632-.927-2.234-.244-.587-.492-.507-.677-.516l-.577-.01c-.2 0-.526.075-.802.376-.276.301-1.053 1.028-1.053 2.507 0 1.479 1.078 2.908 1.228 3.109.15.2 2.122 3.24 5.141 4.544.718.31 1.278.496 1.716.635.722.23 1.38.197 1.9.12.58-.086 1.78-.727 2.03-1.43.25-.702.25-1.304.175-1.43-.075-.125-.276-.2-.577-.35zM12.04 2C6.51 2 2.02 6.49 2.02 12.02c0 1.99.58 3.84 1.59 5.4L2 22.5l5.24-1.57c1.5 1 3.29 1.58 5.2 1.58 5.53 0 10.02-4.49 10.02-10.02C22.46 6.49 17.57 2 12.04 2z"/></svg> Send to WhatsApp';
+          waBtn.style.background = '#25D366';
+          waBtn.style.color = 'white';
+          waBtn.classList.add('btn-primary');
+        }
+        if (emailBtn) {
+          emailBtn.style.setProperty('display', 'none', 'important');
+        }
+      }
+    } else if (hasEmail) {
+      // Only email configured (no WhatsApp)
+      if (waBtn) {
+        waBtn.style.setProperty('display', 'none', 'important');
+        waBtn.style.visibility = 'hidden';
+        waBtn.style.height = '0';
+      }
+      if (emailBtn) {
+        emailBtn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Send Feedback';
+        emailBtn.style.background = '#1A73E8';
+        emailBtn.style.display = 'flex';
+        emailBtn.classList.add('btn-primary');
+        emailBtn.classList.remove('btn-outline');
+        emailBtn.removeAttribute('data-action');
+      }
+    } else {
+      // No WhatsApp AND no email - just show thank you (local storage only)
+      if (waBtn) {
+        waBtn.style.setProperty('display', 'none', 'important');
+        waBtn.style.visibility = 'hidden';
+        waBtn.style.height = '0';
+      }
+      if (emailBtn) {
+        emailBtn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Submit Feedback';
+        emailBtn.style.background = '#1A73E8';
+        emailBtn.style.display = 'flex';
+        emailBtn.classList.add('btn-primary');
+        emailBtn.classList.remove('btn-outline');
+        emailBtn.setAttribute('data-action', 'local-only');
+      }
+    }
+    
+    if (msgTextarea) {
+      msgTextarea.placeholder = 'What could we improve? Your feedback helps us get better...';
+    }
+    
+    // Update heading for 3 stars
+    const shieldTitle = document.querySelector('.shield-title');
+    const shieldSub = document.querySelector('.shield-sub');
+    if (shieldTitle) shieldTitle.textContent = 'Help us improve';
+    if (shieldSub) {
+      if (hasWhatsApp && isMobile) {
+        shieldSub.innerHTML = 'Your feedback goes <strong>directly to our WhatsApp</strong>, never to Google';
+      } else if (hasWhatsApp) {
+        shieldSub.innerHTML = 'Your quick feedback goes <strong>directly via WhatsApp</strong>, never to Google';
+      } else if (hasEmail) {
+        shieldSub.innerHTML = 'Your quick feedback goes <strong>directly to management</strong>, never to Google';
+      } else {
+        shieldSub.innerHTML = 'Your feedback is recorded <strong>privately</strong>, never goes to Google';
+      }
+    }
+  }
+
+  function setupFullFeedback() {
+    // 1-2 stars: Full form with name/contact
+    const formRow = document.querySelector('#view-feedback .form-row');
+    const waBtn = document.getElementById('btn-wa');
+    const emailBtn = document.querySelector('#fb-form button[type="submit"]');
+    const msgTextarea = document.getElementById('fb-msg');
+    
+    if (formRow) formRow.style.display = 'flex'; // Show name/contact fields
+    if (waBtn) waBtn.style.display = 'flex'; // Show WhatsApp button
+    if (emailBtn) {
+      emailBtn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg> Send via Email';
+      emailBtn.style.background = '';
+      emailBtn.classList.remove('btn-primary');
+      emailBtn.classList.add('btn-outline');
+    }
+    if (msgTextarea) {
+      msgTextarea.placeholder = 'Please share details so we can fix this immediately…';
+    }
+    
+    // Update heading for 1-2 stars
+    const shieldTitle = document.querySelector('.shield-title');
+    const shieldSub = document.querySelector('.shield-sub');
+    if (shieldTitle) shieldTitle.textContent = 'We want to make this right';
+    if (shieldSub) shieldSub.innerHTML = 'Your message goes <strong>directly to management</strong>, never to Google';
+  }
+
+  /* ── KEYWORD CHIPS ────────────────────────────────────── */
+  function loadChips() {
+    const wrap = document.getElementById('chips-wrap');
+    wrap.innerHTML = '';
+    keywords = [];
+    const kws = KEYWORDS[business.type] || KEYWORDS.general;
+    kws.forEach(kw => { wrap.appendChild(makeChip(kw)); });
+    updateGenerateBtn();
+  }
+
+  function makeChip(text) {
+    const chip = document.createElement('button');
+    chip.className = 'kw-chip';
+    chip.textContent = text;
+    chip.type = 'button';
+    chip.addEventListener('click', () => {
+      chip.classList.toggle('active');
+      const idx = keywords.indexOf(text);
+      if (idx > -1) keywords.splice(idx, 1);
+      else keywords.push(text);
+      updateGenerateBtn();
+    });
+    return chip;
+  }
+
+  function addCustomChip() {
+    const input = document.getElementById('custom-kw');
+    const val = input.value.trim();
+    if (!val || keywords.includes(val)) return;
+    keywords.push(val);
+    const wrap = document.getElementById('chips-wrap');
+    const chip = makeChip(val);
+    chip.classList.add('active', 'custom');
+    wrap.appendChild(chip);
+    input.value = '';
+    updateGenerateBtn();
+  }
+
+  function updateGenerateBtn() {
+    const btn = document.getElementById('btn-generate');
+    if (!btn) return;
+    btn.disabled = keywords.length === 0;
+  }
+
+  /* ── AI REVIEW GENERATION ──────────────────────────────── */
+  async function generateReview() {
+    if (keywords.length === 0) return;
+
+    const loader = document.getElementById('ai-loader');
+    const card = document.getElementById('review-card');
+    const textarea = document.getElementById('review-text');
+    const btnGen = document.getElementById('btn-generate');
+    const btnPost = document.getElementById('btn-to-post');
+
+    loader.classList.remove('hidden');
+    card.classList.add('hidden');
+    btnGen.classList.add('hidden');
+
+    try {
+      review = await callAI();
+      textarea.value = review;
+      loader.classList.add('hidden');
+      card.classList.remove('hidden');
+      btnPost.classList.remove('hidden');
+    } catch (err) {
+      console.error('AI generation error:', err);
+      loader.classList.add('hidden');
+      btnGen.classList.remove('hidden');
+      alert('Could not generate review. Please try again.');
+    }
+  }
+
+  async function callAI() {
+    const tone = document.getElementById('sel-tone')?.value || 'enthusiastic';
+    const lang = document.getElementById('sel-lang')?.value || 'english';
+    const key = business.apiKey || business.geminiKey; // Support both field names
+
+    if (key) {
+      try {
+        return await geminiGenerate(key, tone, lang);
+      } catch (err) {
+        console.warn('Gemini failed, falling back to local:', err);
+      }
+    }
+
+    return localGenerate(tone, lang);
+  }
+
+  async function geminiGenerate(key, tone, lang) {
+    const prompt = buildPrompt(tone, lang);
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${key}`;
+    
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{ text: prompt }]
+        }],
+        generationConfig: {
+          temperature: 0.9,
+          maxOutputTokens: 200,
+        }
+      })
+    });
+
+    if (!res.ok) throw new Error(`Gemini API error: ${res.status}`);
+    
+    const data = await res.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error('No text in response');
+    
+    return text.trim();
+  }
+
+  function localGenerate(tone, lang) {
+    const templates = {
+      enthusiastic: [
+        `If you haven't visited ${business.name} yet, you're missing out! ${keywords.slice(0, 3).join(', ')} — everything was absolutely perfect. ${keywords.length > 3 ? keywords.slice(3).join(', ') + ' too!' : ''} 5-star experience â€" go yourself and see! 🌟`,
+        `From ${keywords[0]} to ${keywords[keywords.length - 1]}, ${business.name} delivered beyond expectations. ${keywords.slice(1, -1).join(', ')} — truly outstanding! Highly recommend! ⭐`
+      ],
+      natural: [
+        `Great experience at ${business.name}! ${keywords.slice(0, 2).join(' and ')} stood out. ${keywords.length > 2 ? keywords.slice(2).join(', ') + ' were also excellent.' : ''} Would definitely return!`,
+        `Really enjoyed ${business.name}. ${keywords.join(', ')} — all top-notch. Worth visiting!`
+      ],
+      crisp: [
+        `${business.name}: ${keywords.slice(0, 3).join(', ')}. Excellent! ⭐`,
+        `Loved it! ${keywords.slice(0, 2).join(' + ')}. Recommended!`
+      ],
+      professional: [
+        `I recently visited ${business.name} and was thoroughly impressed. The establishment excelled in: ${keywords.join(', ')}. I would highly recommend this business to others seeking quality service.`,
+        `${business.name} provides exceptional service. Notable highlights include ${keywords.join(', ')}. A professional and reliable choice.`
+      ]
+    };
+
+    const options = templates[tone] || templates.natural;
+    return options[Math.floor(Math.random() * options.length)];
+  }
+
+  function buildPrompt(tone, lang) {
+    const bizType = getCatLabel(business.type);
+    return `Write a ${tone} Google review for "${business.name}", a ${bizType}. Include these highlights: ${keywords.join(', ')}. Language: ${lang}. Keep it under 150 words, natural, and authentic.`;
+  }
+
+  /* ── CLIPBOARD & GOOGLE ───────────────────────────────── */
+  async function copy(text) {
+    try {
+      if (navigator.clipboard && location.protocol === 'https:') {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = Object.assign(document.createElement('textarea'),
+          { value: text, style: 'position:fixed;opacity:0' });
+        document.body.appendChild(ta);
+        ta.select(); document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+    } catch { /* silent */ }
+  }
+
+  /* ── UTILITIES ────────────────────────────────────────── */
+  function showError(message) {
+    const errorDiv = document.createElement('div');
+    errorDiv.style.cssText = `
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #f44336;
+      color: white;
+      padding: 16px 24px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 10000;
+      max-width: 90%;
+      text-align: center;
+      font-size: 14px;
+    `;
+    errorDiv.textContent = message;
+    document.body.appendChild(errorDiv);
+    
+    setTimeout(() => {
+      errorDiv.style.opacity = '0';
+      errorDiv.style.transition = 'opacity 0.3s';
+      setTimeout(() => errorDiv.remove(), 300);
+    }, 4000);
+  }
+
+  function showSuccess(message) {
+    const successDiv = document.createElement('div');
+    successDiv.style.cssText = `
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #4CAF50;
+      color: white;
+      padding: 16px 24px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 10000;
+      max-width: 90%;
+      text-align: center;
+      font-size: 14px;
+    `;
+    successDiv.textContent = message;
+    document.body.appendChild(successDiv);
+    
+    setTimeout(() => {
+      successDiv.style.opacity = '0';
+      successDiv.style.transition = 'opacity 0.3s';
+      setTimeout(() => successDiv.remove(), 300);
+    }, 3000);
+  }
+
+  function showToast(msg = '✅ Copied!') {
+    const t = document.getElementById('copy-toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2500);
+  }
+
+  // Alias for copy toast
+  function showCopyToast() {
+    showToast('✓ Copied to clipboard! Opening Google...');
+  }
+
+  /* ── BIND BUTTONS ─────────────────────────────────────── */
+  function bindButtons() {
+    // Generate
+    document.getElementById('btn-generate')?.addEventListener('click', generateReview);
+    document.getElementById('btn-regen')?.addEventListener('click', generateReview);
+
+    // Continue to post
+    document.getElementById('btn-to-post')?.addEventListener('click', () => {
+      const txt = document.getElementById('review-text').value.trim();
+      if (!txt) { alert('Review is empty!'); return; }
+      review = txt;
+      document.getElementById('preview-text').textContent = review;
+      goTo('view-post');
+    });
+
+    // Google CTA - Enhanced with better UX
+    document.getElementById('btn-google')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-google');
+      const originalHTML = btn.innerHTML;
+      
+      // Show copying state
+      btn.innerHTML = `
+        <div class="btn-mega-content">
+          <div style="width: 56px; height: 56px; display: flex; align-items: center; justify-content: center;">
+            <div style="width: 24px; height: 24px; border: 3px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.6s linear infinite;"></div>
+          </div>
+          <div class="btn-mega-text">
+            <div class="btn-mega-title">Copying...</div>
+            <div class="btn-mega-sub">Please wait</div>
+          </div>
+        </div>
+      `;
+      btn.disabled = true;
+      
+      // Copy to clipboard
+      await copy(review);
+      
+      // Increment reviews stat via API
+      if (business.id) {
+        incrementStatAPI(business.id, 'reviews');
+      } else {
+        incStat('reviews'); // Fallback
+      }
+      
+      // Show success state
+      btn.innerHTML = `
+        <div class="btn-mega-content">
+          <div style="width: 56px; height: 56px; background: rgba(255,255,255,0.2); border-radius: 12px; display: flex; align-items: center; justify-content: center;">
+            <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="white" stroke-width="3">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </div>
+          <div class="btn-mega-text">
+            <div class="btn-mega-title">✓ Copied!</div>
+            <div class="btn-mega-sub">Opening Google Reviews...</div>
+          </div>
+        </div>
+      `;
+      btn.style.background = 'linear-gradient(135deg, #34A853 0%, #0F9D58 100%)';
+      
+      // Show toast notification
+      showCopyToast();
+      
+      // Confetti celebration
+      if (typeof confetti === 'function') {
+        confetti({ particleCount: 90, spread: 80, origin: { y: 0.4 } });
+      }
+      
+      // Redirect to Google after delay
+      setTimeout(() => {
+        location.href = business.googleUrl;
+      }, 1200);
+    });
+
+    // Done
+    document.getElementById('btn-done')?.addEventListener('click', resetFlow);
+
+    // Issue tags toggle
+    document.querySelectorAll('.issue-tag').forEach(t => {
+      t.addEventListener('click', () => t.classList.toggle('active'));
+    });
+  }
+
+  /* ── FEEDBACK SUBMISSION API ──────────────────────────── */
+  async function submitFeedbackToAPI(feedbackData) {
+    try {
+      const payload = {
+        businessId: business.id,
+        rating: rating,
+        feedback: feedbackData.msg,
+        customerName: feedbackData.name || 'Anonymous',
+        customerContact: feedbackData.contact || '',
+        issues: feedbackData.issues ? [feedbackData.issues] : []
+      };
+
+      const response = await API.feedback.submit(payload);
+      
+      if (response.success) {
+        console.log('Feedback submitted to API successfully:', response);
+        
+        // Check WhatsApp notification status
+        if (response.whatsapp) {
+          if (response.whatsapp.success) {
+            console.log('WhatsApp notification sent:', response.whatsapp.method);
+          } else {
+            console.warn('WhatsApp notification failed:', response.whatsapp.message);
+          }
+        }
+        
+        // Increment shielded stat
+        if (business.id) {
+          incrementStatAPI(business.id, 'shielded');
+        }
+      }
+      
+      return response;
+    } catch (error) {
+      console.error('Failed to submit feedback to API:', error);
+      // Fallback to localStorage
+      incStat('shielded');
+      throw error;
+    }
+  }
+
+  /* ── BIND FORM ─────────────────────────────────────────── */
+  function bindForm() {
+    const form = document.getElementById('fb-form');
+
+    // WhatsApp
+    document.getElementById('btn-wa')?.addEventListener('click', async () => {
+      if (!validateFB()) return;
+      
+      // Comprehensive WhatsApp validation
+      if (!business.phone) { 
+        showError('WhatsApp number not configured. Please contact the business directly.');
+        return; 
+      }
+      
+      // Clean and validate phone number
+      const cleanPhone = business.phone.replace(/\D/g, '');
+      
+      // Validation checks
+      if (!cleanPhone) {
+        showError('Invalid WhatsApp number format. Please contact the business.');
+        return;
+      }
+      
+      if (cleanPhone.length < 10) {
+        showError('WhatsApp number too short. Please contact the business to update their configuration.');
+        return;
+      }
+      
+      if (cleanPhone.length > 15) {
+        showError('WhatsApp number too long. Please contact the business to update their configuration.');
+        return;
+      }
+      
+      const data = collectFB();
+      
+      // Submit feedback to API first
+      try {
+        await submitFeedbackToAPI(data);
+      } catch (error) {
+        console.warn('Failed to submit feedback to API:', error);
+        // Continue with WhatsApp anyway
+      }
+      
+      let text;
+      if (rating === 3) {
+        // 3 stars: Simple feedback format (no customer details)
+        text = encodeURIComponent(
+          `💬 *Customer Feedback (${rating}★)*\n\n` +
+          `📍 ${business.name}\n` +
+          `${data.issues !== 'General' ? `📌 ${data.issues}\n` : ''}` +
+          `\n*Feedback:*\n"${data.msg}"\n\n` +
+          `_Quick feedback via SmartReview_`
+        );
+      } else {
+        // 1-2 stars: Full format with customer details
+        text = encodeURIComponent(
+          `🚨 *Private Customer Feedback (${rating}★)*\n` +
+          `Business: ${business.name}\n` +
+          `Customer: ${data.name} | ${data.contact}\n` +
+          `Issues: ${data.issues}\n\n*Message:*\n"${data.msg}"\n\n_via SmartReview AI_`
+        );
+      }
+      
+      const waUrl = `https://wa.me/${cleanPhone}?text=${text}`;
+      console.log('Opening WhatsApp:', { phone: cleanPhone, url: waUrl.substring(0, 100) + '...' });
+      
+      // Enhanced popup blocker handling
+      try {
+        const waWindow = window.open(waUrl, '_blank', 'noopener,noreferrer');
+        
+        // Check if popup was blocked
+        if (!waWindow || waWindow.closed || typeof waWindow.closed === 'undefined') {
+          // Popup blocked - try direct navigation after user confirmation
+          if (confirm('Please allow popups to open WhatsApp. Click OK to continue.')) {
+            window.location.href = waUrl;
+          }
+        } else {
+          // Popup opened successfully
+          showDone(false);
+        }
+      } catch (error) {
+        console.error('WhatsApp open error:', error);
+        // Fallback to direct navigation
+        if (confirm('Unable to open WhatsApp in new window. Open in current tab?')) {
+          window.location.href = waUrl;
+        }
+      }
+    });
+
+    // Email / Form submission
+    form?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!validateFB()) return;
+      
+      const data = collectFB();
+      
+      // Check if this is a mobile WhatsApp direct action (3 stars)
+      const emailBtn = e.submitter || e.target.querySelector('button[type="submit"]');
+      const action = emailBtn?.getAttribute('data-action');
+      
+      // Submit to API first
+      try {
+        await submitFeedbackToAPI(data);
+      } catch (error) {
+        console.warn('Failed to submit feedback to API:', error);
+        // Continue with the action anyway
+      }
+      
+      if (action === 'whatsapp-direct') {
+        // Mobile 3-star: Send directly to WhatsApp
+        if (!business.phone) { 
+          showError('WhatsApp not configured. Please contact the business directly.');
+          return; 
+        }
+        
+        // Clean and validate phone number
+        const cleanPhone = business.phone.replace(/\D/g, '');
+        if (!cleanPhone || cleanPhone.length < 10 || cleanPhone.length > 15) {
+          showError('Invalid WhatsApp number. Please contact the business to update their configuration.');
+          return;
+        }
+        
+        const text = encodeURIComponent(
+          `💬 *Customer Feedback (${rating}★)*\n\n` +
+          `📍 ${business.name}\n` +
+          `${data.issues !== 'General' ? `📌 ${data.issues}\n` : ''}` +
+          `\n*Feedback:*\n"${data.msg}"\n\n` +
+          `_Quick feedback via SmartReview_`
+        );
+        
+        const waUrl = `https://wa.me/${cleanPhone}?text=${text}`;
+        console.log('Mobile: Opening WhatsApp:', { phone: cleanPhone });
+        
+        // Direct navigation for mobile
+        window.location.href = waUrl;
+        
+        // Show success after slight delay
+        setTimeout(() => showDone(false), 500);
+        return;
+      }
+      
+      if (action === 'google-direct') {
+        // Customer chose to post on Google instead of private feedback
+        if (business && business.googleUrl) {
+          window.open(business.googleUrl, '_blank');
+          showDone(true);
+        } else {
+          alert('Google review link not configured. Please contact the business.');
+        }
+        return;
+      }
+      
+      if (action === 'local-only') {
+        // No WhatsApp or email - just save locally and show thank you
+        console.log('Local feedback saved:', data);
+        showDone(false);
+        return;
+      }
+      
+      // Regular email submission
+      if (!business.email) { 
+        alert('Manager email not configured. Please add email in admin panel.'); 
+        return; 
+      }
+      const sub  = encodeURIComponent(`Private Feedback: ${rating}★ | ${business.name}`);
+      const body = encodeURIComponent(`Business: ${business.name}\nRating: ${rating}★\nCustomer: ${data.name}\nContact: ${data.contact}\nIssues: ${data.issues}\n\nMessage:\n${data.msg}`);
+      location.href = `mailto:${business.email}?subject=${sub}&body=${body}`;
+      showDone(false);
+    });
+  }
+
+  function validateFB() {
+    const msg = document.getElementById('fb-msg').value.trim();
+    const err = document.getElementById('fb-err');
+    if (!msg) {
+      err.classList.remove('hidden');
+      return false;
+    }
+    err.classList.add('hidden');
+    return true;
+  }
+
+  function collectFB() {
+    const tags = Array.from(document.querySelectorAll('.issue-tag.active')).map(t => t.dataset.issue);
+    const nameField = document.getElementById('fb-name');
+    const contactField = document.getElementById('fb-contact');
+    
+    return {
+      name: (nameField && nameField.value.trim()) || 'Anonymous',
+      contact: (contactField && contactField.value.trim()) || 'Not provided',
+      issues: tags.length ? tags.join(', ') : 'General',
+      msg: document.getElementById('fb-msg').value.trim()
+    };
+  }
+
+  function showDone(positive = true) {
+    const icon = document.getElementById('done-icon');
+    const title = document.getElementById('done-title');
+    const msg = document.getElementById('done-msg');
+    const voucher = document.getElementById('voucher-card');
+
+    if (positive) {
+      icon.textContent = '🎉';
+      title.textContent = 'Thank You!';
+      msg.textContent = 'Your review supports our team and helps us grow. We truly appreciate it!';
+      voucher.style.display = 'none';
+    } else {
+      icon.textContent = '🙏';
+      title.textContent = 'We Appreciate Your Feedback';
+      msg.textContent = 'Thank you for helping us improve. Your concerns matter to us.';
+      voucher.style.display = 'block';
+    }
+
+    goTo('view-done');
+  }
+
+  function resetFlow() {
+    rating = 0;
+    keywords = [];
+    review = '';
+    stepStack = [];
+    showView('view-rate');
+  }
+
+  /* ── HELPERS ──────────────────────────────────────────── */
+  function getCatLabel(type) {
+    const labels = {
+      restaurant: 'Restaurant & Dining',
+      cafe: 'Cafe & Coffee Shop',
+      salon: 'Hair Salon & Beauty',
+      clinic: 'Healthcare & Medical',
+      gym: 'Fitness & Gym',
+      retail: 'Retail Store',
+      hotel: 'Hotel & Hospitality',
+      auto: 'Automotive Service',
+      general: 'Local Business'
+    };
+    return labels[type] || labels.general;
+  }
+
+  function getAvatar(type) {
+    const avatars = {
+      restaurant: '🍽️',
+      cafe: '☕',
+      salon: '💇',
+      clinic: '🏥',
+      gym: '💪',
+      retail: '🛍️',
+      hotel: '🏨',
+      auto: '🔧',
+      general: '🏪'
+    };
+    return avatars[type] || avatars.general;
+  }
+
+  function incStat(key) {
+    if (!business) return;
+    try {
+      const k = `${STAT_PREFIX}${business.id}_${key}`;
+      const v = parseInt(localStorage.getItem(k) || '0') + 1;
+      localStorage.setItem(k, v.toString());
+    } catch {}
+  }
+
+  /* ── PUBLIC API ───────────────────────────────────────── */
+  return {
+    init,
+    goTo,
+    goBack,
+    addCustomChip
+  };
+})();
+
+// Initialize on load
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', R.init);
+} else {
+  R.init();
+}
