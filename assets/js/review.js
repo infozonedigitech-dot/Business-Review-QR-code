@@ -54,16 +54,9 @@ const R = (() => {
       // Show loading state
       showLoadingState();
       
-      // Add timeout to API call (5 seconds max)
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Request timeout')), 5000)
-      );
-      
-      // Race between API call and timeout
-      const response = await Promise.race([
-        API.businesses.getById(bizId),
-        timeoutPromise
-      ]);
+      // Fetch from API with automatic retry on timeout
+      // This will try up to 3 times with 15s/8s/8s timeouts
+      const response = await API.businesses.getById(bizId);
       
       if (!response.success || !response.data) {
         throw new Error('Business not found');
@@ -107,13 +100,14 @@ const R = (() => {
   }
 
   function showLoadingState() {
-    // Show inline loading in the existing view instead of replacing body
+    // Show inline loading with better UX
     const rateView = document.getElementById('view-rate');
     if (rateView) {
       const loadingHTML = `
-        <div style="padding:60px 20px;text-align:center;">
-          <div style="width:40px;height:40px;border:3px solid #e0e0e0;border-top-color:#4285F4;border-radius:50%;animation:spin 0.6s linear infinite;margin:0 auto 16px;"></div>
-          <p style="color:#5F6368;font-size:0.9rem;margin:0;">Loading...</p>
+        <div style="padding:80px 20px;text-align:center;">
+          <div style="width:40px;height:40px;border:3px solid #e0e0e0;border-top-color:#4285F4;border-radius:50%;animation:spin 0.6s linear infinite;margin:0 auto 20px;"></div>
+          <p style="color:#202124;font-size:1rem;font-weight:500;margin:0 0 8px 0;">Loading business info...</p>
+          <p style="color:#5F6368;font-size:0.85rem;margin:0;">This may take a few seconds</p>
         </div>
         <style>
           @keyframes spin { to { transform: rotate(360deg); } }

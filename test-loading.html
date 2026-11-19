@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test QR Loading Speed</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      padding: 40px;
+      max-width: 600px;
+      width: 100%;
+    }
+    h1 {
+      font-size: 1.75rem;
+      color: #202124;
+      margin-bottom: 12px;
+    }
+    .subtitle {
+      color: #5F6368;
+      font-size: 0.95rem;
+      margin-bottom: 30px;
+    }
+    .test-section {
+      margin: 20px 0;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 12px;
+      border-left: 4px solid #4285F4;
+    }
+    .test-title {
+      font-weight: 600;
+      color: #202124;
+      margin-bottom: 12px;
+      font-size: 1.1rem;
+    }
+    .test-result {
+      font-family: 'Courier New', monospace;
+      font-size: 0.9rem;
+      color: #5F6368;
+      padding: 12px;
+      background: white;
+      border-radius: 8px;
+      margin-top: 8px;
+    }
+    .btn {
+      background: #4285F4;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      cursor: pointer;
+      margin: 8px 8px 8px 0;
+      transition: all 0.2s;
+    }
+    .btn:hover {
+      background: #3367D6;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(66, 133, 244, 0.3);
+    }
+    .btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .status {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      margin-left: 8px;
+    }
+    .status.loading {
+      background: #FFF3E0;
+      color: #F57C00;
+    }
+    .status.success {
+      background: #E8F5E9;
+      color: #2E7D32;
+    }
+    .status.error {
+      background: #FFEBEE;
+      color: #C62828;
+    }
+    .metric {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    .metric:last-child {
+      border-bottom: none;
+    }
+    .metric-label {
+      color: #5F6368;
+      font-size: 0.9rem;
+    }
+    .metric-value {
+      color: #202124;
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+    .alert {
+      padding: 16px;
+      border-radius: 8px;
+      margin: 20px 0;
+      font-size: 0.9rem;
+    }
+    .alert-info {
+      background: #E3F2FD;
+      color: #1565C0;
+      border-left: 4px solid #2196F3;
+    }
+    .alert-warning {
+      background: #FFF3E0;
+      color: #EF6C00;
+      border-left: 4px solid #FF9800;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🧪 QR Loading Speed Test</h1>
+    <p class="subtitle">Test your Business Review QR system performance</p>
+
+    <div class="alert alert-info">
+      <strong>ℹ️ Important:</strong> First, create a business in the admin panel, then use its ID to test loading speed.
+    </div>
+
+    <!-- Test 1: API Health -->
+    <div class="test-section">
+      <div class="test-title">
+        Test 1: API Health Check
+        <span id="health-status" class="status" style="display:none;"></span>
+      </div>
+      <button class="btn" onclick="testAPIHealth()">Run Health Check</button>
+      <div id="health-result" class="test-result" style="display:none;"></div>
+    </div>
+
+    <!-- Test 2: List Businesses -->
+    <div class="test-section">
+      <div class="test-title">
+        Test 2: List All Businesses
+        <span id="list-status" class="status" style="display:none;"></span>
+      </div>
+      <button class="btn" onclick="testListBusinesses()">List Businesses</button>
+      <div id="list-result" class="test-result" style="display:none;"></div>
+    </div>
+
+    <!-- Test 3: Load Specific Business -->
+    <div class="test-section">
+      <div class="test-title">
+        Test 3: Load Business (QR Scan Simulation)
+        <span id="load-status" class="status" style="display:none;"></span>
+      </div>
+      <input type="text" id="business-id" placeholder="Enter business ID (e.g., biz_1234567890)" 
+             style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;margin:8px 0;font-size:0.9rem;">
+      <button class="btn" onclick="testLoadBusiness()">Test Load Speed</button>
+      <button class="btn" style="background:#34A853;" onclick="testLoadBusinessCached()">Test Cached Load</button>
+      <div id="load-result" class="test-result" style="display:none;"></div>
+    </div>
+
+    <div class="alert alert-warning">
+      <strong>⚠️ Note:</strong> First load may take 5-15 seconds due to Vercel cold start. Subsequent loads should be under 2 seconds.
+    </div>
+  </div>
+
+  <script src="assets/js/api-config.js"></script>
+  <script>
+    // Test 1: API Health
+    async function testAPIHealth() {
+      const statusEl = document.getElementById('health-status');
+      const resultEl = document.getElementById('health-result');
+      const btn = event.target;
+      
+      btn.disabled = true;
+      statusEl.textContent = '⏳ Testing...';
+      statusEl.className = 'status loading';
+      statusEl.style.display = 'inline-block';
+      resultEl.style.display = 'none';
+      
+      const startTime = performance.now();
+      
+      try {
+        const response = await fetch('/api/businesses');
+        const endTime = performance.now();
+        const duration = ((endTime - startTime) / 1000).toFixed(2);
+        
+        const data = await response.json();
+        
+        statusEl.textContent = '✅ Healthy';
+        statusEl.className = 'status success';
+        
+        resultEl.innerHTML = `
+          <div class="metric">
+            <span class="metric-label">Status:</span>
+            <span class="metric-value" style="color:#34A853;">${response.status} ${response.statusText}</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Response Time:</span>
+            <span class="metric-value">${duration}s</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Success:</span>
+            <span class="metric-value">${data.success ? 'Yes' : 'No'}</span>
+          </div>
+        `;
+        resultEl.style.display = 'block';
+      } catch (error) {
+        const endTime = performance.now();
+        const duration = ((endTime - startTime) / 1000).toFixed(2);
+        
+        statusEl.textContent = '❌ Failed';
+        statusEl.className = 'status error';
+        
+        resultEl.innerHTML = `
+          <div class="metric">
+            <span class="metric-label">Error:</span>
+            <span class="metric-value" style="color:#C62828;">${error.message}</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Duration:</span>
+            <span class="metric-value">${duration}s</span>
+          </div>
+        `;
+        resultEl.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    // Test 2: List Businesses
+    async function testListBusinesses() {
+      const statusEl = document.getElementById('list-status');
+      const resultEl = document.getElementById('list-result');
+      const btn = event.target;
+      
+      btn.disabled = true;
+      statusEl.textContent = '⏳ Loading...';
+      statusEl.className = 'status loading';
+      statusEl.style.display = 'inline-block';
+      resultEl.style.display = 'none';
+      
+      const startTime = performance.now();
+      
+      try {
+        const response = await API.businesses.getAll();
+        const endTime = performance.now();
+        const duration = ((endTime - startTime) / 1000).toFixed(2);
+        
+        statusEl.textContent = '✅ Success';
+        statusEl.className = 'status success';
+        
+        let businessList = '<strong>No businesses found.</strong> Create one in admin panel first.';
+        if (response.data && response.data.length > 0) {
+          businessList = '<strong>Businesses:</strong><br>';
+          response.data.forEach(biz => {
+            businessList += `<br>• ${biz.name} (ID: ${biz.id})`;
+          });
+        }
+        
+        resultEl.innerHTML = `
+          <div class="metric">
+            <span class="metric-label">Load Time:</span>
+            <span class="metric-value">${duration}s</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Count:</span>
+            <span class="metric-value">${response.count || 0}</span>
+          </div>
+          <div style="margin-top:12px;">${businessList}</div>
+        `;
+        resultEl.style.display = 'block';
+        
+        // Auto-fill first business ID if exists
+        if (response.data && response.data.length > 0) {
+          document.getElementById('business-id').value = response.data[0].id;
+        }
+      } catch (error) {
+        const endTime = performance.now();
+        const duration = ((endTime - startTime) / 1000).toFixed(2);
+        
+        statusEl.textContent = '❌ Failed';
+        statusEl.className = 'status error';
+        
+        resultEl.innerHTML = `
+          <div class="metric">
+            <span class="metric-label">Error:</span>
+            <span class="metric-value" style="color:#C62828;">${error.message}</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Duration:</span>
+            <span class="metric-value">${duration}s</span>
+          </div>
+        `;
+        resultEl.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    // Test 3: Load Business (simulates QR scan)
+    async function testLoadBusiness(useCache = false) {
+      const businessId = document.getElementById('business-id').value.trim();
+      const statusEl = document.getElementById('load-status');
+      const resultEl = document.getElementById('load-result');
+      const btn = event.target;
+      
+      if (!businessId) {
+        alert('Please enter a business ID first!');
+        return;
+      }
+      
+      btn.disabled = true;
+      statusEl.textContent = useCache ? '⏳ Loading from cache...' : '⏳ Loading...';
+      statusEl.className = 'status loading';
+      statusEl.style.display = 'inline-block';
+      resultEl.style.display = 'none';
+      
+      const startTime = performance.now();
+      
+      try {
+        const response = await API.businesses.getById(businessId);
+        const endTime = performance.now();
+        const duration = ((endTime - startTime) / 1000).toFixed(2);
+        
+        statusEl.textContent = '✅ Loaded';
+        statusEl.className = 'status success';
+        
+        const rating = duration < 2 ? '⚡ Excellent' : duration < 5 ? '✅ Good' : duration < 10 ? '⚠️ Slow' : '❌ Very Slow';
+        const ratingColor = duration < 2 ? '#34A853' : duration < 5 ? '#FBBC05' : duration < 10 ? '#F57C00' : '#C62828';
+        
+        resultEl.innerHTML = `
+          <div class="metric">
+            <span class="metric-label">Load Time:</span>
+            <span class="metric-value" style="color:${ratingColor};">${duration}s ${rating}</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Business:</span>
+            <span class="metric-value">${response.data.name}</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Type:</span>
+            <span class="metric-value">${response.data.type}</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Cached:</span>
+            <span class="metric-value">${useCache ? 'Yes' : 'No (fresh load)'}</span>
+          </div>
+        `;
+        resultEl.style.display = 'block';
+      } catch (error) {
+        const endTime = performance.now();
+        const duration = ((endTime - startTime) / 1000).toFixed(2);
+        
+        statusEl.textContent = '❌ Failed';
+        statusEl.className = 'status error';
+        
+        resultEl.innerHTML = `
+          <div class="metric">
+            <span class="metric-label">Error:</span>
+            <span class="metric-value" style="color:#C62828;">${error.message}</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Duration:</span>
+            <span class="metric-value">${duration}s</span>
+          </div>
+          <div style="margin-top:12px;color:#C62828;">
+            <strong>Possible reasons:</strong><br>
+            • Business ID doesn't exist<br>
+            • Vercel cold start (try again in a few seconds)<br>
+            • No businesses created yet
+          </div>
+        `;
+        resultEl.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function testLoadBusinessCached() {
+      testLoadBusiness(true);
+    }
+
+    // Auto-run health check on page load
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        testAPIHealth();
+      }, 500);
+    });
+  </script>
+</body>
+</html>

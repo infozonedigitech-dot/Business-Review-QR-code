@@ -10,7 +10,7 @@ const API = {
     : '',
 
   /**
-   * Generic API call wrapper with error handling and timeout
+   * Generic API call wrapper with error handling, timeout, and retry
    */
   async request(endpoint, options = {}) {
     const url = `${this.baseUrl}${endpoint}`;
@@ -22,39 +22,57 @@ const API = {
       ...options,
     };
 
-    try {
-      // Add 8-second timeout for all API calls
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
-      
-      const response = await fetch(url, {
-        ...config,
-        signal: controller.signal
-      });
-      
-      clearTimeout(timeoutId);
-      
-      // Handle empty responses
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        throw new Error('Invalid response format');
-      }
-      
-      const data = await response.json();
+    const maxRetries = options.retry !== false ? 2 : 0; // Retry up to 2 times by default
+    let lastError;
 
-      if (!response.ok) {
-        throw new Error(data.error || `API Error: ${response.status}`);
-      }
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        // Use shorter timeout on retries
+        const timeout = attempt === 0 ? 15000 : 8000; // 15s first try, 8s for retries
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        
+        const response = await fetch(url, {
+          ...config,
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        // Handle empty responses
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new Error('Invalid response format');
+        }
+        
+        const data = await response.json();
 
-      return data;
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        console.error(`API Request Timeout [${endpoint}]`);
-        throw new Error('Request timeout - please check your connection');
+        if (!response.ok) {
+          throw new Error(data.error || `API Error: ${response.status}`);
+        }
+
+        return data;
+      } catch (error) {
+        lastError = error;
+        
+        if (error.name === 'AbortError') {
+          console.warn(`API Request Timeout [${endpoint}] - Attempt ${attempt + 1}/${maxRetries + 1}`);
+          if (attempt < maxRetries) {
+            // Wait a bit before retrying (exponential backoff)
+            await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+            continue;
+          }
+        } else {
+          // For non-timeout errors, don't retry
+          console.error(`API Request Failed [${endpoint}]:`, error);
+          throw error;
+        }
       }
-      console.error(`API Request Failed [${endpoint}]:`, error);
-      throw error;
     }
+    
+    // All retries failed
+    console.error(`API Request Failed after ${maxRetries + 1} attempts [${endpoint}]`);
+    throw new Error('Request timeout - server may be cold starting. Please try again.');
   },
 
   /**
