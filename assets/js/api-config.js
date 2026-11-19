@@ -10,7 +10,7 @@ const API = {
     : '',
 
   /**
-   * Generic API call wrapper with error handling
+   * Generic API call wrapper with error handling and timeout
    */
   async request(endpoint, options = {}) {
     const url = `${this.baseUrl}${endpoint}`;
@@ -23,7 +23,23 @@ const API = {
     };
 
     try {
-      const response = await fetch(url, config);
+      // Add 8-second timeout for all API calls
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      
+      const response = await fetch(url, {
+        ...config,
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      // Handle empty responses
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('Invalid response format');
+      }
+      
       const data = await response.json();
 
       if (!response.ok) {
@@ -32,6 +48,10 @@ const API = {
 
       return data;
     } catch (error) {
+      if (error.name === 'AbortError') {
+        console.error(`API Request Timeout [${endpoint}]`);
+        throw new Error('Request timeout - please check your connection');
+      }
       console.error(`API Request Failed [${endpoint}]:`, error);
       throw error;
     }
@@ -41,15 +61,36 @@ const API = {
    * Business Endpoints
    */
   businesses: {
+    cache: new Map(), // Simple cache for business data
+    cacheTimeout: 5 * 60 * 1000, // 5 minutes
+    
     // Get all businesses
     async getAll() {
       return await API.request('/api/businesses');
     },
 
-    // Get single business by ID
+    // Get single business by ID (with caching)
     async getById(id, includeStats = false) {
+      // Check cache first
+      const cacheKey = `${id}_${includeStats}`;
+      const cached = this.cache.get(cacheKey);
+      
+      if (cached && Date.now() - cached.timestamp < this.cacheTimeout) {
+        console.log('Using cached business data');
+        return cached.data;
+      }
+      
+      // Fetch from API
       const query = includeStats ? '?stats=true' : '';
-      return await API.request(`/api/businesses/${id}${query}`);
+      const result = await API.request(`/api/businesses/${id}${query}`);
+      
+      // Cache the result
+      this.cache.set(cacheKey, {
+        data: result,
+        timestamp: Date.now()
+      });
+      
+      return result;
     },
 
     // Create new business

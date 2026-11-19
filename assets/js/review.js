@@ -54,18 +54,25 @@ const R = (() => {
       // Show loading state
       showLoadingState();
       
-      // Fetch business from API
-      const response = await API.businesses.getById(bizId);
+      // Add timeout to API call (5 seconds max)
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 5000)
+      );
+      
+      // Race between API call and timeout
+      const response = await Promise.race([
+        API.businesses.getById(bizId),
+        timeoutPromise
+      ]);
       
       if (!response.success || !response.data) {
-        showSetupNeeded();
-        return;
+        throw new Error('Business not found');
       }
       
       business = response.data;
       
-      // Increment scan counter
-      incrementStatAPI(bizId, 'scans');
+      // Increment scan counter (don't wait for this)
+      incrementStatAPI(bizId, 'scans').catch(() => {});
       
       // Setup UI
       applyBizToUI();
@@ -77,7 +84,7 @@ const R = (() => {
     } catch (error) {
       console.error('Failed to load business:', error);
       
-      // Try fallback to localStorage/URL data (backward compatibility)
+      // Quick fallback: try localStorage/URL data
       const params = new URLSearchParams(location.search);
       let biz = loadBusinessFromUrl(params);
       
@@ -100,18 +107,21 @@ const R = (() => {
   }
 
   function showLoadingState() {
-    const loadingHTML = `
-      <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;">
-        <div style="text-align:center;">
-          <div style="width:48px;height:48px;border:4px solid #e0e0e0;border-top-color:#4285F4;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 20px;"></div>
-          <p style="color:#5F6368;font-size:0.9rem;">Loading business information...</p>
+    // Show inline loading in the existing view instead of replacing body
+    const rateView = document.getElementById('view-rate');
+    if (rateView) {
+      const loadingHTML = `
+        <div style="padding:60px 20px;text-align:center;">
+          <div style="width:40px;height:40px;border:3px solid #e0e0e0;border-top-color:#4285F4;border-radius:50%;animation:spin 0.6s linear infinite;margin:0 auto 16px;"></div>
+          <p style="color:#5F6368;font-size:0.9rem;margin:0;">Loading...</p>
         </div>
-      </div>
-      <style>
-        @keyframes spin { to { transform: rotate(360deg); } }
-      </style>
-    `;
-    document.body.innerHTML = loadingHTML;
+        <style>
+          @keyframes spin { to { transform: rotate(360deg); } }
+        </style>
+      `;
+      rateView.innerHTML = loadingHTML;
+      rateView.style.display = 'block';
+    }
   }
 
   async function incrementStatAPI(bizId, stat) {
