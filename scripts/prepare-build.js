@@ -15,14 +15,12 @@ if (!fs.existsSync(publicDir)) {
   fs.mkdirSync(publicDir, { recursive: true });
 }
 
-// Files and directories to copy
+// Files and directories to copy (exclude api and lib - they stay at root for Vercel)
 const filesToCopy = [
   'admin.html',
   'customer-review.html',
   '404.html',
-  'assets',
-  'api',
-  'lib'
+  'assets'
 ];
 
 // Copy files
