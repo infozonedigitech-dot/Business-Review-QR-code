@@ -54,11 +54,19 @@ const R = (() => {
       // Show loading state
       showLoadingState();
       
+      console.log('🔍 Attempting to load business:', bizId);
+      
       // Fetch from API with automatic retry on timeout
       // This will try up to 3 times with 15s/8s/8s timeouts
       const response = await API.businesses.getById(bizId);
       
+      console.log('📡 API Response:', response);
+      
       if (!response.success || !response.data) {
+        console.error('❌ Business not found in database:', {
+          businessId: bizId,
+          response: response
+        });
         throw new Error('Business not found');
       }
       
@@ -93,7 +101,13 @@ const R = (() => {
       bindButtons();
       
     } catch (error) {
-      console.error('Failed to load business:', error);
+      console.error('❌ Failed to load business from API:', {
+        error: error.message,
+        businessId: bizId,
+        timestamp: new Date().toISOString()
+      });
+      
+      console.warn('🔄 Attempting fallback to localStorage/URL data...');
       
       // Quick fallback: try localStorage/URL data
       const params = new URLSearchParams(location.search);
@@ -104,6 +118,7 @@ const R = (() => {
       }
       
       if (biz) {
+        console.log('✅ Loaded business from fallback:', biz.name);
         business = biz;
         applyBizToUI();
         incStat('scans');
@@ -112,6 +127,14 @@ const R = (() => {
         bindForm();
         bindButtons();
       } else {
+        console.error('❌ All methods failed. Business does not exist:', {
+          businessId: bizId,
+          apiError: error.message,
+          localStorageChecked: true,
+          urlDataChecked: true
+        });
+        
+        // Show helpful error message
         showSetupNeeded();
       }
     }
@@ -173,23 +196,50 @@ const R = (() => {
   }
 
   function showSetupNeeded() {
-    // Show professional "Invalid QR Code" message for mobile users
+    // Show helpful "Setup Required" message with action steps
     const setupView = document.getElementById('view-setup');
     if (setupView) {
       setupView.style.display = 'flex';
       setupView.innerHTML = `
-        <div style="text-align:center; padding:60px 20px; max-width:400px; margin:0 auto;">
-          <div style="font-size:4rem; margin-bottom:20px;">🔍</div>
-          <h2 style="font-size:1.4rem; font-weight:700; margin-bottom:12px; color:#202124;">Invalid QR Code</h2>
-          <p style="color:#5F6368; line-height:1.6; margin-bottom:24px;">
-            This review link is not properly configured. Please scan the QR code provided by the business.
+        <div style="text-align:center; padding:40px 20px; max-width:500px; margin:0 auto;">
+          <div style="font-size:4rem; margin-bottom:20px;">⚠️</div>
+          <h2 style="font-size:1.5rem; font-weight:700; margin-bottom:16px; color:#202124;">Business Not Found</h2>
+          <p style="color:#5F6368; line-height:1.6; margin-bottom:20px; font-size:1rem;">
+            This QR code is not linked to an active business. The business may have been deleted or the database was reset.
           </p>
-          <p style="font-size:0.85rem; color:#9AA0A6; margin-bottom:20px;">
-            Business owners: Configure your business in the admin panel first.
-          </p>
-          <a href="admin.html" style="display:inline-block; padding:12px 24px; background:#4285F4; color:white; text-decoration:none; border-radius:8px; font-weight:600;">
-            Open Admin Panel
+          
+          <div style="background:#FFF3E0;border-left:4px solid #F57C00;padding:16px;border-radius:8px;margin:24px 0;text-align:left;">
+            <p style="font-weight:600;color:#E65100;margin-bottom:8px;font-size:0.95rem;">🔧 Quick Fix (Business Owner):</p>
+            <ol style="margin-left:20px;line-height:1.8;color:#5F6368;font-size:0.9rem;">
+              <li>Open the admin panel</li>
+              <li>Add your business again</li>
+              <li>Generate a new QR code</li>
+              <li>Replace old QR code with new one</li>
+            </ol>
+          </div>
+
+          <div style="background:#E3F2FD;border-left:4px solid #2196F3;padding:16px;border-radius:8px;margin:24px 0;text-align:left;">
+            <p style="font-weight:600;color:#1565C0;margin-bottom:8px;font-size:0.95rem;">💡 Why did this happen?</p>
+            <p style="color:#5F6368;font-size:0.85rem;line-height:1.6;margin-bottom:8px;">
+              Your system uses in-memory storage, which resets when:
+            </p>
+            <ul style="margin-left:20px;line-height:1.6;color:#5F6368;font-size:0.85rem;">
+              <li>The application is redeployed</li>
+              <li>The server restarts</li>
+              <li>After a period of inactivity</li>
+            </ul>
+            <p style="color:#5F6368;font-size:0.85rem;line-height:1.6;margin-top:12px;">
+              <strong>Solution:</strong> Setup Vercel KV database for permanent storage (see VERCEL_KV_SETUP.md)
+            </p>
+          </div>
+          
+          <a href="admin.html" style="display:inline-block; padding:14px 28px; background:#4285F4; color:white; text-decoration:none; border-radius:8px; font-weight:600; font-size:1rem; margin-top:12px; box-shadow: 0 2px 8px rgba(66,133,244,0.3);">
+            📱 Open Admin Panel
           </a>
+          
+          <p style="color:#9AA0A6; margin-top:24px; font-size:0.85rem;">
+            Need help? Read: GOOGLE_REDIRECT_FIX.md
+          </p>
         </div>
       `;
     }
