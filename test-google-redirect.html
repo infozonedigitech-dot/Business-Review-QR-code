@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Google Redirect Test</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .card {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      padding: 30px;
+      max-width: 800px;
+      margin: 20px auto;
+    }
+    h1 {
+      font-size: 1.5rem;
+      color: #202124;
+      margin-bottom: 20px;
+    }
+    .section {
+      margin: 20px 0;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 12px;
+      border-left: 4px solid #4285F4;
+    }
+    .section-title {
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #202124;
+    }
+    .data-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #e0e0e0;
+      font-size: 0.9rem;
+    }
+    .data-row:last-child {
+      border-bottom: none;
+    }
+    .data-label {
+      color: #5F6368;
+      font-weight: 500;
+    }
+    .data-value {
+      color: #202124;
+      font-family: 'Courier New', monospace;
+      word-break: break-all;
+      max-width: 60%;
+      text-align: right;
+    }
+    .status {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      margin-left: 8px;
+    }
+    .status.success { background: #E8F5E9; color: #2E7D32; }
+    .status.error { background: #FFEBEE; color: #C62828; }
+    .status.warning { background: #FFF3E0; color: #F57C00; }
+    .btn {
+      background: #4285F4;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      margin: 8px 4px 8px 0;
+      transition: all 0.2s;
+    }
+    .btn:hover {
+      background: #3367D6;
+      transform: translateY(-1px);
+    }
+    .btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .btn.success { background: #34A853; }
+    .btn.warning { background: #F57C00; }
+    .alert {
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin: 16px 0;
+      font-size: 0.9rem;
+    }
+    .alert-success { background: #E8F5E9; color: #2E7D32; border-left: 4px solid #34A853; }
+    .alert-error { background: #FFEBEE; color: #C62828; border-left: 4px solid #EA4335; }
+    .alert-info { background: #E3F2FD; color: #1565C0; border-left: 4px solid #2196F3; }
+    input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      margin: 8px 0;
+      font-size: 0.9rem;
+    }
+    pre {
+      background: #263238;
+      color: #EEFFFF;
+      padding: 16px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🔍 Google Redirect Diagnostic Test</h1>
+    <p style="color:#5F6368;margin-bottom:20px;">Test if Google Review URL is correctly saved and retrieved</p>
+
+    <div class="alert alert-info">
+      <strong>ℹ️ Instructions:</strong> First add a business in admin panel with a Google Review URL, then test here.
+    </div>
+
+    <!-- Step 1: List all businesses -->
+    <div class="section">
+      <div class="section-title">Step 1: List All Businesses</div>
+      <button class="btn" onclick="listBusinesses()">Load Businesses</button>
+      <div id="businesses-result"></div>
+    </div>
+
+    <!-- Step 2: Test specific business -->
+    <div class="section">
+      <div class="section-title">Step 2: Test Specific Business</div>
+      <input type="text" id="business-id" placeholder="Enter business ID (e.g., biz_1234567890)">
+      <button class="btn" onclick="testBusiness()">Test Business Data</button>
+      <div id="business-result"></div>
+    </div>
+
+    <!-- Step 3: Test QR URL -->
+    <div class="section">
+      <div class="section-title">Step 3: Test QR Code URL</div>
+      <button class="btn warning" onclick="testQRUrl()">Generate & Test QR URL</button>
+      <div id="qr-result"></div>
+    </div>
+
+    <!-- Step 4: Test Customer Flow -->
+    <div class="section">
+      <div class="section-title">Step 4: Test Customer Review Flow</div>
+      <button class="btn success" onclick="testCustomerFlow()">Simulate QR Scan</button>
+      <div id="customer-result"></div>
+    </div>
+  </div>
+
+  <script src="assets/js/api-config.js"></script>
+  <script>
+    let testBusinessData = null;
+
+    async function listBusinesses() {
+      const resultDiv = document.getElementById('businesses-result');
+      resultDiv.innerHTML = '<p style="color:#5F6368;margin-top:12px;">⏳ Loading...</p>';
+      
+      try {
+        const response = await API.businesses.getAll();
+        
+        if (!response.success || !response.data || response.data.length === 0) {
+          resultDiv.innerHTML = `
+            <div class="alert alert-error" style="margin-top:12px;">
+              <strong>❌ No businesses found!</strong><br>
+              Go to <a href="admin.html" style="color:#C62828;text-decoration:underline;">admin panel</a> and create a business first.
+            </div>
+          `;
+          return;
+        }
+
+        let html = `<div class="alert alert-success" style="margin-top:12px;">
+          <strong>✅ Found ${response.count} business(es)</strong>
+        </div>`;
+
+        response.data.forEach((biz, index) => {
+          const hasGoogleUrl = biz.googleUrl && biz.googleUrl.trim();
+          html += `
+            <div style="margin-top:16px;padding:16px;background:white;border-radius:8px;border:1px solid #e0e0e0;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <strong style="font-size:1.1rem;">${biz.name}</strong>
+                <span class="status ${hasGoogleUrl ? 'success' : 'error'}">
+                  ${hasGoogleUrl ? '✅ Has Google URL' : '❌ No Google URL'}
+                </span>
+              </div>
+              <div class="data-row">
+                <span class="data-label">ID:</span>
+                <span class="data-value">${biz.id}</span>
+              </div>
+              <div class="data-row">
+                <span class="data-label">Type:</span>
+                <span class="data-value">${biz.type}</span>
+              </div>
+              <div class="data-row">
+                <span class="data-label">Google URL:</span>
+                <span class="data-value" style="color:${hasGoogleUrl ? '#34A853' : '#C62828'};">
+                  ${hasGoogleUrl ? biz.googleUrl : 'Not set ❌'}
+                </span>
+              </div>
+              <button class="btn" onclick="selectBusiness('${biz.id}')" style="margin-top:12px;">
+                Select & Test This Business
+              </button>
+            </div>
+          `;
+        });
+
+        resultDiv.innerHTML = html;
+      } catch (error) {
+        resultDiv.innerHTML = `
+          <div class="alert alert-error" style="margin-top:12px;">
+            <strong>❌ Error:</strong> ${error.message}
+          </div>
+        `;
+      }
+    }
+
+    function selectBusiness(bizId) {
+      document.getElementById('business-id').value = bizId;
+      testBusiness();
+    }
+
+    async function testBusiness() {
+      const bizId = document.getElementById('business-id').value.trim();
+      const resultDiv = document.getElementById('business-result');
+      
+      if (!bizId) {
+        resultDiv.innerHTML = '<div class="alert alert-error" style="margin-top:12px;">Please enter a business ID</div>';
+        return;
+      }
+
+      resultDiv.innerHTML = '<p style="color:#5F6368;margin-top:12px;">⏳ Loading business data...</p>';
+
+      try {
+        const response = await API.businesses.getById(bizId);
+        
+        if (!response.success || !response.data) {
+          resultDiv.innerHTML = `
+            <div class="alert alert-error" style="margin-top:12px;">
+              <strong>❌ Business not found!</strong><br>
+              Business ID "${bizId}" does not exist.
+            </div>
+          `;
+          return;
+        }
+
+        testBusinessData = response.data;
+        const hasGoogleUrl = testBusinessData.googleUrl && testBusinessData.googleUrl.trim();
+
+        let html = `
+          <div class="alert alert-${hasGoogleUrl ? 'success' : 'error'}" style="margin-top:12px;">
+            <strong>${hasGoogleUrl ? '✅' : '❌'} Business loaded ${hasGoogleUrl ? 'successfully' : 'but NO Google URL set!'}</strong>
+          </div>
+          <pre>${JSON.stringify(testBusinessData, null, 2)}</pre>
+        `;
+
+        if (hasGoogleUrl) {
+          html += `
+            <button class="btn success" onclick="testGoogleRedirect('${testBusinessData.googleUrl}')" style="margin-top:12px;">
+              🚀 Test Google Redirect
+            </button>
+          `;
+        } else {
+          html += `
+            <div class="alert alert-error" style="margin-top:12px;">
+              <strong>⚠️ Critical Issue:</strong> This business has no Google Review URL!<br>
+              Go to admin panel → Edit this business → Add Google Review URL → Save
+            </div>
+          `;
+        }
+
+        resultDiv.innerHTML = html;
+      } catch (error) {
+        resultDiv.innerHTML = `
+          <div class="alert alert-error" style="margin-top:12px;">
+            <strong>❌ Error:</strong> ${error.message}
+          </div>
+        `;
+      }
+    }
+
+    function testGoogleRedirect(url) {
+      if (!url) {
+        alert('No Google URL to test!');
+        return;
+      }
+      
+      const confirmed = confirm(`Test Google Redirect?\n\nThis will open:\n${url}\n\nContinue?`);
+      if (confirmed) {
+        window.open(url, '_blank');
+        alert('✅ Redirect test completed!\n\nDid it open your Google Review page?');
+      }
+    }
+
+    function testQRUrl() {
+      const bizId = document.getElementById('business-id').value.trim();
+      const resultDiv = document.getElementById('qr-result');
+      
+      if (!bizId) {
+        resultDiv.innerHTML = '<div class="alert alert-error" style="margin-top:12px;">Please test a business first (Step 2)</div>';
+        return;
+      }
+
+      if (!testBusinessData) {
+        resultDiv.innerHTML = '<div class="alert alert-error" style="margin-top:12px;">Please load business data first (Step 2)</div>';
+        return;
+      }
+
+      // Generate QR URL (same logic as admin.js)
+      const base = window.location.origin + window.location.pathname.replace(/[^/]*$/, 'customer-review.html');
+      const qrUrl = `${base}?businessId=${bizId}`;
+
+      const hasGoogleUrl = testBusinessData.googleUrl && testBusinessData.googleUrl.trim();
+
+      let html = `
+        <div class="alert alert-info" style="margin-top:12px;">
+          <strong>📱 QR Code URL Generated:</strong>
+        </div>
+        <div class="data-row" style="margin-top:12px;background:white;padding:12px;border-radius:8px;">
+          <span class="data-label">QR URL:</span>
+          <span class="data-value">${qrUrl}</span>
+        </div>
+        <div class="data-row" style="background:white;padding:12px;border-radius:8px;">
+          <span class="data-label">Business ID:</span>
+          <span class="data-value">${bizId}</span>
+        </div>
+        <div class="data-row" style="background:white;padding:12px;border-radius:8px;">
+          <span class="data-label">Google URL:</span>
+          <span class="data-value" style="color:${hasGoogleUrl ? '#34A853' : '#C62828'};">
+            ${hasGoogleUrl ? testBusinessData.googleUrl : '❌ NOT SET'}
+          </span>
+        </div>
+      `;
+
+      if (hasGoogleUrl) {
+        html += `
+          <button class="btn success" onclick="window.open('${qrUrl}', '_blank')" style="margin-top:12px;">
+            📱 Open QR URL (Simulate Scan)
+          </button>
+        `;
+      } else {
+        html += `
+          <div class="alert alert-error" style="margin-top:12px;">
+            <strong>❌ Cannot test QR scan:</strong> No Google URL configured for this business
+          </div>
+        `;
+      }
+
+      resultDiv.innerHTML = html;
+    }
+
+    function testCustomerFlow() {
+      const bizId = document.getElementById('business-id').value.trim();
+      const resultDiv = document.getElementById('customer-result');
+      
+      if (!bizId) {
+        resultDiv.innerHTML = '<div class="alert alert-error" style="margin-top:12px;">Please test a business first (Step 2)</div>';
+        return;
+      }
+
+      if (!testBusinessData) {
+        resultDiv.innerHTML = '<div class="alert alert-error" style="margin-top:12px;">Please load business data first (Step 2)</div>';
+        return;
+      }
+
+      const hasGoogleUrl = testBusinessData.googleUrl && testBusinessData.googleUrl.trim();
+      const qrUrl = `${window.location.origin}/customer-review.html?businessId=${bizId}`;
+
+      let html = `
+        <div class="alert alert-${hasGoogleUrl ? 'success' : 'error'}" style="margin-top:12px;">
+          <strong>${hasGoogleUrl ? '✅ Ready to test!' : '❌ Cannot test - No Google URL'}</strong>
+        </div>
+      `;
+
+      if (hasGoogleUrl) {
+        html += `
+          <div style="margin-top:16px;padding:16px;background:white;border-radius:8px;">
+            <p style="font-weight:600;margin-bottom:8px;">🎬 Test Scenario:</p>
+            <ol style="margin-left:20px;line-height:1.8;">
+              <li>Click button below (simulates QR scan)</li>
+              <li>Customer review page opens with business info</li>
+              <li>Give a 5-star rating</li>
+              <li>Click "Post to Google Reviews" button</li>
+              <li>Should open: <code style="background:#f8f9fa;padding:2px 6px;border-radius:4px;">${testBusinessData.googleUrl}</code></li>
+            </ol>
+          </div>
+          <button class="btn success" onclick="window.open('${qrUrl}', '_blank')" style="margin-top:12px;">
+            🚀 Start Customer Flow Test
+          </button>
+        `;
+      } else {
+        html += `
+          <div class="alert alert-error" style="margin-top:12px;">
+            <strong>⚠️ Fix Required:</strong><br>
+            1. Go to <a href="admin.html" style="color:#C62828;text-decoration:underline;">admin panel</a><br>
+            2. Edit business "${testBusinessData.name}"<br>
+            3. Add Google Review URL<br>
+            4. Save and come back here to test
+          </div>
+        `;
+      }
+
+      resultDiv.innerHTML = html;
+    }
+
+    // Auto-load businesses on page load
+    window.addEventListener('load', () => {
+      setTimeout(listBusinesses, 500);
+    });
+  </script>
+</body>
+</html>

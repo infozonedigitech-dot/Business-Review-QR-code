@@ -64,6 +64,24 @@ const R = (() => {
       
       business = response.data;
       
+      // DEBUG: Log business data to verify Google URL
+      console.log('✅ Business loaded successfully:', {
+        id: business.id,
+        name: business.name,
+        hasGoogleUrl: !!(business.googleUrl && business.googleUrl.trim()),
+        googleUrl: business.googleUrl,
+        googleUrlLength: business.googleUrl ? business.googleUrl.length : 0
+      });
+      
+      // CRITICAL: Validate Google URL
+      if (!business.googleUrl || !business.googleUrl.trim()) {
+        console.error('❌ CRITICAL: Business has NO Google Review URL!', business);
+        alert(`⚠️ Configuration Error\n\nThis business does not have a Google Review URL configured.\n\nBusiness: ${business.name}\nID: ${business.id}\n\nPlease contact the business owner to configure the Google Review link in the admin panel.`);
+      } else if (!business.googleUrl.startsWith('http')) {
+        console.error('❌ CRITICAL: Invalid Google URL format!', business.googleUrl);
+        alert(`⚠️ Configuration Error\n\nThe Google Review URL is invalid (must start with http:// or https://).\n\nCurrent URL: ${business.googleUrl}\n\nPlease contact the business owner to fix this.`);
+      }
+      
       // Increment scan counter (don't wait for this)
       incrementStatAPI(bizId, 'scans').catch(() => {});
       
@@ -329,12 +347,30 @@ const R = (() => {
       
       // Bind Google review action
       emailBtn.onclick = () => {
+        // DEBUG: Log mixed feedback Google button click
+        console.log('🔵 Mixed feedback Google button clicked:', {
+          businessId: business?.id,
+          businessName: business?.name,
+          googleUrl: business?.googleUrl,
+          hasGoogleUrl: !!(business && business.googleUrl && business.googleUrl.trim())
+        });
+        
         // Open Google reviews directly
-        if (business && business.googleUrl) {
+        if (business && business.googleUrl && business.googleUrl.trim()) {
+          console.log('🚀 Opening Google Reviews:', business.googleUrl);
+          
+          // Validate URL format
+          if (!business.googleUrl.startsWith('http')) {
+            console.error('❌ Invalid Google URL format:', business.googleUrl);
+            alert(`⚠️ Invalid URL\n\nThe Google Review URL is not valid: ${business.googleUrl}\n\nPlease contact the business owner.`);
+            return;
+          }
+          
           window.open(business.googleUrl, '_blank');
           showDone(true);
         } else {
-          alert('Google review link not configured. Please contact the business.');
+          console.error('❌ No Google URL configured');
+          alert('⚠️ Google review link not configured. Please contact the business.');
         }
       };
     }
@@ -716,6 +752,27 @@ const R = (() => {
       const btn = document.getElementById('btn-google');
       const originalHTML = btn.innerHTML;
       
+      // DEBUG: Log before redirect
+      console.log('🔵 Google button clicked:', {
+        businessId: business?.id,
+        businessName: business?.name,
+        googleUrl: business?.googleUrl,
+        hasGoogleUrl: !!(business && business.googleUrl && business.googleUrl.trim())
+      });
+      
+      // CRITICAL: Validate Google URL before redirect
+      if (!business || !business.googleUrl || !business.googleUrl.trim()) {
+        console.error('❌ Cannot redirect: No Google URL configured');
+        alert(`⚠️ Configuration Error\n\nThis business does not have a Google Review URL configured.\n\nPlease contact the business owner.`);
+        return;
+      }
+      
+      if (!business.googleUrl.startsWith('http')) {
+        console.error('❌ Cannot redirect: Invalid Google URL format:', business.googleUrl);
+        alert(`⚠️ Invalid URL\n\nThe Google Review URL is not valid.\n\nURL: ${business.googleUrl}\n\nPlease contact the business owner.`);
+        return;
+      }
+      
       // Show copying state
       btn.innerHTML = `
         <div class="btn-mega-content">
@@ -766,7 +823,16 @@ const R = (() => {
       
       // Redirect to Google after delay
       setTimeout(() => {
-        location.href = business.googleUrl;
+        console.log('🚀 Redirecting to Google Reviews:', business.googleUrl);
+        
+        // Use window.location.href for same-tab redirect (more reliable)
+        try {
+          window.location.href = business.googleUrl;
+        } catch (error) {
+          console.error('❌ Redirect failed:', error);
+          // Fallback: try window.open
+          window.open(business.googleUrl, '_blank');
+        }
       }, 1200);
     });
 
@@ -962,12 +1028,30 @@ const R = (() => {
       }
       
       if (action === 'google-direct') {
+        // DEBUG: Log google-direct action
+        console.log('🔵 Google-direct action triggered:', {
+          businessId: business?.id,
+          businessName: business?.name,
+          googleUrl: business?.googleUrl,
+          hasGoogleUrl: !!(business && business.googleUrl && business.googleUrl.trim())
+        });
+        
         // Customer chose to post on Google instead of private feedback
-        if (business && business.googleUrl) {
+        if (business && business.googleUrl && business.googleUrl.trim()) {
+          console.log('🚀 Opening Google Reviews (google-direct):', business.googleUrl);
+          
+          // Validate URL format
+          if (!business.googleUrl.startsWith('http')) {
+            console.error('❌ Invalid Google URL format:', business.googleUrl);
+            alert(`⚠️ Invalid URL\n\nThe Google Review URL is not valid: ${business.googleUrl}\n\nPlease contact the business owner.`);
+            return;
+          }
+          
           window.open(business.googleUrl, '_blank');
           showDone(true);
         } else {
-          alert('Google review link not configured. Please contact the business.');
+          console.error('❌ No Google URL configured for google-direct action');
+          alert('⚠️ Google review link not configured. Please contact the business.');
         }
         return;
       }
